@@ -1,0 +1,24 @@
+paths:
+  raw_dir: data/raw
+  processed_dir: data/processed
+  models_dir: models
+  entities_csv: data/raw/entities.csv
+  directors_csv: data/raw/directors.csv
+  transactions_csv: data/raw/transactions.csv
+  financials_csv: data/raw/financials.csv
+  suppliers_csv: data/raw/suppliers.csv
+  labels_links_csv: data/raw/labels_links.csv
+
+features:
+  txn_embed_dim: 32
+  graph_embed_dim: 32
+  weights:
+    text: 1.0
+    txn: 1.0
+    graph: 1.0
+
+ann:
+  hnsw_M: 64
+  efConstruction: 200
+  K0: 400
+  K: 20

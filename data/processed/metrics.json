@@ -1,0 +1,5 @@
+{
+  "precision_at_20": 0.3375,
+  "recall_at_20": 0.6696428571428571,
+  "queries_evaluated": 100
+}

@@ -1,0 +1,7 @@
+entity_id,name,industry_code,about_text,lat,lon,is_customer
+1,Example Company A,52290,Example Company A operates in Other transport support sector; based in Jakarta. Focus on trading and regional supply chains.,-6.179408005972425,106.74402148537754,0
+2,Example Company B,20110,Example Company B operates in Basic chemicals sector; based in Jakarta. Focus on trading and regional supply chains.,-6.230280248484706,106.77390675209796,1
+3,Example Company C,62010,Example Company C operates in Computer programming sector; based in Surabaya. Focus on logistics and regional supply chains.,-7.18885413231427,112.71905920141482,0
+4,Example Company D,16299,Example Company D operates in Wood products n.e.c. sector; based in Surabaya. Focus on logistics and regional supply chains.,-7.217644913241018,112.91291593980576,0
+5,Example Company E,13110,Example Company E operates in Spinning of textiles sector; based in Surabaya. Focus on logistics and regional supply chains.,-7.156471076438588,112.71696281145059,0
+

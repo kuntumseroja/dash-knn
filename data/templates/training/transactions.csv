@@ -1,0 +1,12 @@
+src_entity_id,dst_entity_id,yyyymm,amount,category
+1,2,2024-03,10941.33,raw_materials
+1,2,2024-04,7678.58,utilities
+1,2,2024-05,4721.46,raw_materials
+2,1,2024-05,944.29,services
+2,1,2024-06,12035.77,services
+2,3,2024-07,9692.36,raw_materials
+3,4,2024-09,13326.53,utilities
+3,5,2024-10,19333.49,services
+4,5,2024-11,9334.65,services
+5,1,2024-12,14206.73,utilities
+
