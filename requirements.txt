@@ -1,12 +1,11 @@
 numpy==1.26.4
 pandas==2.2.3
 scikit-learn==1.5.2
-lightgbm==4.3.0
-faiss-cpu==1.7.4.post2
 sentence-transformers==3.0.1
 pyyaml==6.0.2
-shap==0.46.0
 streamlit==1.38.0
 st-cytoscape==0.0.5
 networkx==3.4.1
 spacy==3.7.2
+xgboost
+joblib
