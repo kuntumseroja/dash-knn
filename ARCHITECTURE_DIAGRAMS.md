@@ -913,6 +913,570 @@ New Data → Raw Storage → Re-run Feature Engineering → Re-run Fusion → Re
 
 ---
 
+## 9. Data Privacy & Protection Architecture
+
+```mermaid
+graph TB
+    subgraph "Data Classification Layer"
+        PII[PII/Sensitive Data<br/>- Customer Names<br/>- Director Names<br/>- Company Names<br/>- Financial Data]
+        NON_PII[Non-Sensitive Data<br/>- Entity IDs<br/>- Industry Codes<br/>- Geographic Coordinates<br/>- Transaction Patterns]
+    end
+
+    subgraph "Data Ingestion & Masking"
+        INGEST[Data Ingestion<br/>CSV Files]
+        MASK[Data Masking Module<br/>- Name Anonymization<br/>- Tokenization<br/>- Pseudonymization]
+        ENCRYPT_INGEST[Encryption at Rest<br/>AES-256]
+    end
+
+    subgraph "Secure Storage Layer"
+        ENC_RAW[Encrypted Raw Data<br/>data/raw/<br/>AES-256 Encrypted]
+        ENC_PROC[Encrypted Processed Data<br/>data/processed/<br/>AES-256 Encrypted]
+        ENC_MODELS[Encrypted Models<br/>models/<br/>AES-256 Encrypted]
+        KEY_MGMT[Key Management<br/>- Encryption Keys<br/>- Access Control<br/>- Key Rotation]
+    end
+
+    subgraph "Access Control Layer"
+        AUTH[Authentication<br/>- User Identity<br/>- Role-Based Access]
+        AUTHZ[Authorization<br/>- RBAC Policies<br/>- Data Access Permissions]
+        AUDIT[Audit Logging<br/>- Access Logs<br/>- Query Logs<br/>- Data Changes]
+    end
+
+    subgraph "Processing Layer with Privacy"
+        PRIV_FEAT[Privacy-Preserving<br/>Feature Engineering<br/>- Differential Privacy<br/>- K-Anonymity]
+        PRIV_EMBED[Embedding Generation<br/>- No PII in Embeddings<br/>- Semantic Only]
+        PRIV_TRAIN[Secure Model Training<br/>- Federated Learning Ready<br/>- Homomorphic Encryption Ready]
+    end
+
+    subgraph "Inference Layer with Privacy"
+        PRIV_INF[Privacy-Preserving<br/>Inference<br/>- Query Masking<br/>- Result Filtering]
+        DEID[De-identification<br/>- Name Masking<br/>- ID Obfuscation]
+        RESULT_MASK[Result Masking<br/>- Partial Name Display<br/>- Entity ID Only Mode]
+    end
+
+    subgraph "Data Retention & Deletion"
+        RETENTION[Retention Policies<br/>- Time-Based<br/>- Purpose-Based]
+        DELETION[Secure Deletion<br/>- Cryptographic Erasure<br/>- Data Purging]
+        BACKUP[Encrypted Backups<br/>- Secure Backup Storage<br/>- Backup Encryption]
+    end
+
+    subgraph "Compliance & Monitoring"
+        GDPR[GDPR Compliance<br/>- Right to Erasure<br/>- Data Portability]
+        PDPA[PDPA Compliance<br/>Indonesia Data Protection]
+        MONITOR[Privacy Monitoring<br/>- PII Detection<br/>- Access Anomalies<br/>- Compliance Checks]
+    end
+
+    PII --> INGEST
+    NON_PII --> INGEST
+    
+    INGEST --> MASK
+    MASK --> ENCRYPT_INGEST
+    ENCRYPT_INGEST --> ENC_RAW
+
+    ENC_RAW --> PRIV_FEAT
+    PRIV_FEAT --> ENC_PROC
+    ENC_PROC --> PRIV_TRAIN
+    PRIV_TRAIN --> ENC_MODELS
+
+    KEY_MGMT --> ENC_RAW
+    KEY_MGMT --> ENC_PROC
+    KEY_MGMT --> ENC_MODELS
+
+    AUTH --> AUTHZ
+    AUTHZ --> PRIV_FEAT
+    AUTHZ --> PRIV_INF
+    AUTHZ --> AUDIT
+
+    ENC_PROC --> PRIV_INF
+    ENC_MODELS --> PRIV_INF
+    PRIV_INF --> DEID
+    DEID --> RESULT_MASK
+
+    RETENTION --> DELETION
+    DELETION --> BACKUP
+
+    GDPR --> MONITOR
+    PDPA --> MONITOR
+    AUDIT --> MONITOR
+
+    style PII fill:#ffebee
+    style MASK fill:#fff3e0
+    style ENCRYPT_INGEST fill:#e3f2fd
+    style ENC_RAW fill:#e8f5e9
+    style ENC_PROC fill:#e8f5e9
+    style ENC_MODELS fill:#e8f5e9
+    style AUTH fill:#f3e5f5
+    style AUTHZ fill:#f3e5f5
+    style PRIV_INF fill:#fff9c4
+    style DEID fill:#fff9c4
+    style GDPR fill:#e1bee7
+    style PDPA fill:#e1bee7
+```
+
+### Data Classification & PII Identification
+
+#### Sensitive Data Categories
+
+**PII (Personally Identifiable Information)**:
+- **Customer Names**: Company/entity names in `entities.name`
+- **Director Names**: Personal names in `directors.person_name`
+- **Financial Data**: Revenue, margin, transaction amounts
+- **Location Data**: Precise coordinates (lat/lon) that could identify specific locations
+- **Business Relationships**: Transaction patterns revealing business connections
+
+**Non-Sensitive Data**:
+- **Entity IDs**: Numeric identifiers (can be pseudonymized)
+- **Industry Codes**: Generic classification codes
+- **Aggregated Patterns**: Transaction patterns without specific amounts
+- **Embeddings**: Numerical vectors (no direct PII)
+
+### Data Masking & Anonymization Strategies
+
+#### 1. Name Anonymization
+
+**Strategy**: Replace real names with pseudonyms or tokens
+
+```python
+# Example: Name Masking Function
+def mask_entity_name(name, mask_type='partial'):
+    if mask_type == 'full':
+        # Full anonymization: "Entity_12345"
+        return f"Entity_{hash(name) % 100000}"
+    elif mask_type == 'partial':
+        # Partial masking: "PT ***** Indonesia"
+        parts = name.split()
+        if len(parts) > 1:
+            return f"{parts[0]} {'*' * len(' '.join(parts[1:-1]))} {parts[-1]}"
+        return f"Entity_{hash(name) % 10000}"
+    elif mask_type == 'tokenized':
+        # Tokenization: Replace with secure token
+        return generate_secure_token(name)
+```
+
+**Implementation Points**:
+- Apply during data ingestion
+- Store mapping table separately (encrypted)
+- Reversible only with proper authorization
+- Use consistent hashing for same entity
+
+#### 2. Director Name Protection
+
+**Strategy**: Hash or tokenize director names
+
+```python
+# Director name anonymization
+def anonymize_director_name(name):
+    # Option 1: Full hash
+    return f"Director_{hash(name) % 100000}"
+    
+    # Option 2: Initials only (if allowed)
+    # return f"{name[0]}.****"
+    
+    # Option 3: Remove from processing (if not critical)
+    # return None
+```
+
+**Considerations**:
+- Director overlap feature can use hashed names
+- Graph embeddings work with anonymized names
+- Maintain relationship structure without exposing PII
+
+#### 3. Financial Data Masking
+
+**Strategy**: Bucketization and noise addition
+
+```python
+# Financial data protection
+def mask_financial_data(amount, method='bucket'):
+    if method == 'bucket':
+        # Bucket into ranges
+        buckets = [0, 1000, 10000, 100000, 1000000, float('inf')]
+        for i, threshold in enumerate(buckets[1:], 1):
+            if amount < threshold:
+                return f"Range_{buckets[i-1]}_{threshold}"
+    elif method == 'differential_privacy':
+        # Add calibrated noise
+        noise = np.random.laplace(0, sensitivity/epsilon)
+        return amount + noise
+    elif method == 'rounding':
+        # Round to significant digits
+        return round(amount, -3)  # Round to nearest 1000
+```
+
+#### 4. Location Data Protection
+
+**Strategy**: Geospatial generalization
+
+```python
+# Location privacy
+def generalize_coordinates(lat, lon, precision='city'):
+    if precision == 'city':
+        # Round to ~10km precision
+        return round(lat, 1), round(lon, 1)
+    elif precision == 'region':
+        # Round to ~100km precision
+        return round(lat, 0), round(lon, 0)
+    elif precision == 'country':
+        # Round to country level
+        return round(lat, -1), round(lon, -1)
+```
+
+### Encryption Architecture
+
+#### Encryption at Rest
+
+**Implementation**:
+- **Raw Data**: Encrypt CSV files using AES-256
+- **Processed Data**: Encrypt NumPy arrays and Parquet files
+- **Models**: Encrypt model files (joblib, JSON)
+- **Metadata**: Encrypt mapping files (index_to_entity.json)
+
+**Key Management**:
+- Use separate encryption keys for each data category
+- Store keys in secure key management system (AWS KMS, HashiCorp Vault)
+- Implement key rotation policies
+- Use envelope encryption for large files
+
+#### Encryption in Transit
+
+**Implementation**:
+- **HTTPS/TLS**: All API and web traffic encrypted
+- **Database Connections**: Encrypted connections to data sources
+- **File Transfers**: SFTP or encrypted file transfer protocols
+- **Internal Communication**: Encrypted inter-service communication
+
+### Access Control & Authorization
+
+#### Role-Based Access Control (RBAC)
+
+**Roles**:
+- **Data Administrator**: Full access, can view unmasked data
+- **Data Scientist**: Access to anonymized data for model training
+- **Analyst**: Read-only access to masked results
+- **End User**: Limited access, only masked results
+- **Auditor**: Read-only access to audit logs
+
+**Permissions Matrix**:
+
+| Role | Raw Data | Processed Data | Models | Unmasked Results | Audit Logs |
+|------|----------|----------------|--------|------------------|------------|
+| Data Administrator | Read/Write | Read/Write | Read/Write | Yes | Read |
+| Data Scientist | Read (Masked) | Read/Write | Read/Write | No | Read |
+| Analyst | No | Read (Masked) | Read | No | No |
+| End User | No | No | No | No | No |
+| Auditor | No | No | No | No | Read |
+
+#### Implementation
+
+```python
+# Example: Access control decorator
+from functools import wraps
+import streamlit as st
+
+def require_role(allowed_roles):
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            user_role = st.session_state.get('user_role')
+            if user_role not in allowed_roles:
+                st.error("Access denied. Insufficient permissions.")
+                return None
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
+
+@require_role(['Data Administrator', 'Data Scientist'])
+def load_unmasked_data():
+    # Load and return unmasked data
+    pass
+
+@require_role(['Analyst', 'End User'])
+def load_masked_data():
+    # Load and return masked data
+    pass
+```
+
+### Privacy-Preserving Feature Engineering
+
+#### Differential Privacy
+
+**Implementation**: Add calibrated noise to sensitive features
+
+```python
+# Differential privacy for transaction features
+def add_differential_privacy(feature_value, sensitivity, epsilon):
+    """
+    Add Laplace noise for differential privacy
+    sensitivity: maximum change in output from single record change
+    epsilon: privacy budget (lower = more private)
+    """
+    noise = np.random.laplace(0, sensitivity / epsilon)
+    return feature_value + noise
+```
+
+#### K-Anonymity
+
+**Implementation**: Ensure each entity is indistinguishable from at least k-1 others
+
+```python
+# K-anonymity for entity groups
+def ensure_k_anonymity(entities_df, k=5, quasi_identifiers=['industry_code', 'lat_rounded', 'lon_rounded']):
+    """
+    Group entities to ensure k-anonymity
+    Each group has at least k entities with same quasi-identifiers
+    """
+    # Round location to reduce uniqueness
+    entities_df['lat_rounded'] = entities_df['lat'].round(1)
+    entities_df['lon_rounded'] = entities_df['lon'].round(1)
+    
+    # Group by quasi-identifiers
+    groups = entities_df.groupby(quasi_identifiers)
+    
+    # Filter groups with less than k entities
+    valid_groups = groups.filter(lambda x: len(x) >= k)
+    
+    return valid_groups
+```
+
+### Inference Layer Privacy Protection
+
+#### Query Masking
+
+**Implementation**: Mask sensitive information in user queries
+
+```python
+# Query masking in Streamlit app
+def mask_query_results(df, user_role):
+    if user_role in ['Data Administrator']:
+        return df  # No masking for admin
+    
+    # Mask entity names
+    if 'name' in df.columns:
+        df['name'] = df['name'].apply(lambda x: mask_entity_name(x, 'partial'))
+    
+    # Mask director names
+    if 'director_name' in df.columns:
+        df['director_name'] = df['director_name'].apply(anonymize_director_name)
+    
+    # Round financial data
+    if 'amount' in df.columns:
+        df['amount'] = df['amount'].apply(lambda x: round(x, -3))
+    
+    # Generalize coordinates
+    if 'lat' in df.columns and 'lon' in df.columns:
+        df['lat'] = df['lat'].round(1)
+        df['lon'] = df['lon'].round(1)
+    
+    return df
+```
+
+#### Result Filtering
+
+**Implementation**: Filter sensitive results based on user permissions
+
+```python
+# Result filtering
+def filter_sensitive_results(results_df, user_role):
+    if user_role == 'End User':
+        # Remove sensitive columns
+        sensitive_cols = ['director_overlap', 'shared_counterparties', 'revenue']
+        return results_df.drop(columns=[c for c in sensitive_cols if c in results_df.columns])
+    return results_df
+```
+
+### Data Retention & Deletion
+
+#### Retention Policies
+
+**Policy Framework**:
+- **Raw Data**: Retain for 7 years (regulatory requirement)
+- **Processed Data**: Retain for 2 years or until model retraining
+- **Model Artifacts**: Retain for 1 year or until superseded
+- **Audit Logs**: Retain for 5 years
+- **Backups**: Retain for 90 days
+
+#### Secure Deletion
+
+**Implementation**:
+- **Cryptographic Erasure**: Overwrite with random data
+- **Key Deletion**: Delete encryption keys to make data unrecoverable
+- **Backup Purging**: Remove from all backup systems
+- **Verification**: Verify deletion across all storage locations
+
+```python
+# Secure deletion function
+def secure_delete(file_path, passes=3):
+    """
+    Securely delete file by overwriting with random data
+    """
+    file_size = os.path.getsize(file_path)
+    with open(file_path, "ba+") as f:
+        for _ in range(passes):
+            f.seek(0)
+            f.write(os.urandom(file_size))
+        f.seek(0)
+        f.truncate()
+    os.remove(file_path)
+```
+
+### Compliance & Regulatory Requirements
+
+#### GDPR Compliance (EU)
+
+**Requirements**:
+- **Right to Erasure**: Ability to delete user data on request
+- **Data Portability**: Export data in machine-readable format
+- **Privacy by Design**: Privacy built into system architecture
+- **Data Minimization**: Collect only necessary data
+- **Consent Management**: Obtain explicit consent for data processing
+
+**Implementation**:
+- Data deletion API endpoint
+- Data export functionality
+- Consent tracking system
+- Privacy impact assessments
+
+#### PDPA Compliance (Indonesia)
+
+**Requirements**:
+- **Data Protection**: Protect personal data from unauthorized access
+- **Data Breach Notification**: Notify authorities within 72 hours
+- **Data Subject Rights**: Right to access, correct, delete data
+- **Data Localization**: Store sensitive data within Indonesia (if required)
+
+**Implementation**:
+- Encryption for all sensitive data
+- Breach detection and notification system
+- Data subject request handling
+- Local data storage options
+
+### Audit Logging & Monitoring
+
+#### Audit Log Components
+
+**Logged Events**:
+- Data access (who, what, when)
+- Data modifications
+- User authentication/authorization
+- Query executions
+- Data exports
+- Privacy policy changes
+
+**Log Format**:
+```json
+{
+  "timestamp": "2024-01-15T10:30:00Z",
+  "user_id": "user_123",
+  "user_role": "Analyst",
+  "action": "query_executed",
+  "resource": "entities.csv",
+  "data_masked": true,
+  "ip_address": "192.168.1.100",
+  "result_count": 50
+}
+```
+
+#### Privacy Monitoring
+
+**Monitoring Points**:
+- PII detection in data flows
+- Unauthorized access attempts
+- Anomalous query patterns
+- Data exfiltration attempts
+- Compliance violations
+
+**Alerts**:
+- Unusual data access patterns
+- Multiple failed authentication attempts
+- Large data exports
+- Access to sensitive data outside business hours
+- Compliance policy violations
+
+### Best Practices Implementation
+
+#### 1. Data Minimization
+- Only collect necessary data fields
+- Remove unused data regularly
+- Aggregate data when possible
+
+#### 2. Purpose Limitation
+- Use data only for stated purposes
+- Document data usage
+- Obtain consent for new uses
+
+#### 3. Storage Limitation
+- Delete data when no longer needed
+- Implement automatic retention policies
+- Regular data cleanup processes
+
+#### 4. Accuracy
+- Maintain data quality
+- Allow data correction requests
+- Validate data inputs
+
+#### 5. Security
+- Encrypt all sensitive data
+- Implement access controls
+- Regular security audits
+
+#### 6. Accountability
+- Document privacy measures
+- Maintain audit trails
+- Regular compliance reviews
+
+### Privacy Configuration
+
+**Recommended Configuration** (`config.yaml` addition):
+
+```yaml
+privacy:
+  enable_masking: true
+  masking_level: "partial"  # full, partial, none
+  encryption_at_rest: true
+  encryption_algorithm: "AES-256"
+  key_rotation_days: 90
+  
+  data_retention:
+    raw_data_days: 2555  # 7 years
+    processed_data_days: 730  # 2 years
+    model_artifacts_days: 365  # 1 year
+    audit_logs_days: 1825  # 5 years
+  
+  access_control:
+    default_role: "End User"
+    require_authentication: true
+    session_timeout_minutes: 30
+  
+  compliance:
+    gdpr_enabled: true
+    pdpa_enabled: true
+    data_localization: false  # Set to true if required
+  
+  anonymization:
+    entity_name_method: "partial"  # full, partial, tokenized
+    director_name_method: "hash"  # hash, initials, remove
+    financial_data_method: "bucket"  # bucket, differential_privacy, rounding
+    location_precision: "city"  # city, region, country
+```
+
+### Implementation Checklist
+
+- [ ] Implement data classification for PII identification
+- [ ] Deploy encryption at rest for all data storage
+- [ ] Implement encryption in transit (HTTPS/TLS)
+- [ ] Set up key management system
+- [ ] Deploy role-based access control (RBAC)
+- [ ] Implement data masking/anonymization functions
+- [ ] Set up audit logging system
+- [ ] Configure data retention policies
+- [ ] Implement secure deletion procedures
+- [ ] Set up privacy monitoring and alerts
+- [ ] Document privacy policies and procedures
+- [ ] Conduct privacy impact assessment
+- [ ] Train staff on data privacy practices
+- [ ] Regular compliance audits and reviews
+
+---
+
 ## Summary
 
 ### Architecture Highlights
