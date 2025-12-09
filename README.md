@@ -83,7 +83,13 @@ pip install -r requirements.txt
 - **Modeling:** xgboost (for re-ranker)
 - **Embeddings:** sentence-transformers (requires torch)
 - **Graph:** networkx (for graph embeddings)
+- **NER:** spacy (for named entity recognition)
 - **App:** streamlit, st-cytoscape
+
+**Installing spaCy model for NER:**
+```bash
+python -m spacy download en_core_web_sm
+```
 
 **Note:** `requirements.txt` includes some optional packages (faiss-cpu, lightgbm, shap) that are not currently used by the codebase. These can be removed if you encounter installation issues.
 
@@ -151,10 +157,26 @@ python src/features/build_graph.py
 python src/features/fuse.py
 ```
 
+**Text Processing with NER:**
+The `build_text.py` script now includes Named Entity Recognition (NER) to extract:
+- **Organizations** (ORG): Company names, institutions
+- **Locations** (GPE): Cities, countries (e.g., Jakarta, Surabaya)
+- **People** (PERSON): Person names
+- Other entities (PRODUCT, MONEY, DATE, etc.)
+
+Extracted entities are appended to the text before embedding, enhancing semantic similarity. Results are saved to `data/processed/ner_entities.json`.
+
+**Example NER processing:**
+```bash
+python src/features/example_ner.py
+```
+This demonstrates NER extraction on sample data and shows statistics about extracted entities.
+
 **Outputs** (in `data/processed/`):
 
 * `Z.npy` — fused embedding matrix (one row per entity)
 * `index_to_entity.json` — mapping between matrix row and `entity_id`
+* `ner_entities.json` — extracted named entities per entity (optional)
 
 ### 6.2 Build ANN index (Nearest Neighbors, cosine)
 
@@ -206,12 +228,14 @@ streamlit run app/app.py
 
 ## 7) Updating data
 
-When you edit/append CSVs in `data/raw/`, re-run only what’s needed:
+When you edit/append CSVs in `data/raw/`, re-run only what's needed:
 
-* Changed **about\_text/industry** → `build_text.py` → `fuse.py` → `ann_index.py`
+* Changed **about\_text/industry** → `build_text.py` (with NER extraction) → `fuse.py` → `ann_index.py`
 * Changed **transactions** → `build_txn.py` → `fuse.py` → `ann_index.py`
 * Changed **directors/suppliers** → `build_graph.py` → `fuse.py` → `ann_index.py`
 * Added/edited **labels\_links.csv** → `train_reranker.py` → `report_metrics.py`
+
+**Note:** If the spaCy NER model is not available, `build_text.py` will continue without NER extraction (text embeddings will still be generated).
 
 Then refresh the app (or use the **Reload** button).
 

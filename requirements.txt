@@ -9,3 +9,4 @@ shap==0.46.0
 streamlit==1.38.0
 st-cytoscape==0.0.5
 networkx==3.4.1
+spacy==3.7.2
