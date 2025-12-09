@@ -7,5 +7,5 @@ streamlit==1.38.0
 st-cytoscape==0.0.5
 networkx==3.4.1
 spacy==3.7.2
-xgboost
-joblib
+xgboost>=2.0.0
+joblib>=1.3.0
