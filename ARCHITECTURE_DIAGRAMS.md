@@ -922,9 +922,16 @@ graph TB
         NON_PII[Non-Sensitive Data<br/>- Entity IDs<br/>- Industry Codes<br/>- Geographic Coordinates<br/>- Transaction Patterns]
     end
 
+    subgraph "NER Model for PII Detection"
+        NER_MODEL[NER Model<br/>spaCy / Transformers<br/>- Person Names<br/>- Organization Names<br/>- Location Names<br/>- Financial Terms]
+        NER_SCAN[PII Scanning<br/>- Text Analysis<br/>- Entity Extraction<br/>- Confidence Scores]
+        PII_INVENTORY[PII Inventory<br/>- Detected Entities<br/>- Location Mapping<br/>- Risk Assessment]
+    end
+
     subgraph "Data Ingestion & Masking"
         INGEST[Data Ingestion<br/>CSV Files]
-        MASK[Data Masking Module<br/>- Name Anonymization<br/>- Tokenization<br/>- Pseudonymization]
+        NER_DETECT[NER-Based<br/>PII Detection<br/>- Auto-detect PII<br/>- Classify Sensitivity<br/>- Tag Data Fields]
+        MASK[Data Masking Module<br/>- Name Anonymization<br/>- Tokenization<br/>- Pseudonymization<br/>- NER-Guided Masking]
         ENCRYPT_INGEST[Encryption at Rest<br/>AES-256]
     end
 
@@ -968,7 +975,11 @@ graph TB
     PII --> INGEST
     NON_PII --> INGEST
     
-    INGEST --> MASK
+    INGEST --> NER_DETECT
+    NER_MODEL --> NER_SCAN
+    NER_SCAN --> NER_DETECT
+    NER_DETECT --> PII_INVENTORY
+    PII_INVENTORY --> MASK
     MASK --> ENCRYPT_INGEST
     ENCRYPT_INGEST --> ENC_RAW
 
@@ -999,6 +1010,10 @@ graph TB
     AUDIT --> MONITOR
 
     style PII fill:#ffebee
+    style NER_MODEL fill:#e1bee7
+    style NER_SCAN fill:#e1bee7
+    style NER_DETECT fill:#e1bee7
+    style PII_INVENTORY fill:#e1bee7
     style MASK fill:#fff3e0
     style ENCRYPT_INGEST fill:#e3f2fd
     style ENC_RAW fill:#e8f5e9
@@ -1014,13 +1029,209 @@ graph TB
 
 ### Data Classification & PII Identification
 
+#### NER Model for Automatic PII Detection
+
+**Purpose**: Automatically detect and classify PII in text data using Named Entity Recognition (NER) models.
+
+**NER Model Architecture**:
+
+```python
+# NER Model Implementation
+import spacy
+from transformers import AutoTokenizer, AutoModelForTokenClassification
+import torch
+
+class PII_NER_Detector:
+    def __init__(self, model_type='spacy'):
+        if model_type == 'spacy':
+            # Load spaCy model with NER
+            self.nlp = spacy.load("en_core_web_sm")
+            # Add custom PII labels
+            self.pii_labels = ['PERSON', 'ORG', 'GPE', 'MONEY', 'DATE']
+        elif model_type == 'transformers':
+            # Load transformer-based NER model
+            self.tokenizer = AutoTokenizer.from_pretrained("dslim/bert-base-NER")
+            self.model = AutoModelForTokenClassification.from_pretrained("dslim/bert-base-NER")
+    
+    def detect_pii(self, text):
+        """Detect PII entities in text"""
+        if hasattr(self, 'nlp'):
+            # spaCy approach
+            doc = self.nlp(text)
+            pii_entities = []
+            for ent in doc.ents:
+                if ent.label_ in self.pii_labels:
+                    pii_entities.append({
+                        'text': ent.text,
+                        'label': ent.label_,
+                        'start': ent.start_char,
+                        'end': ent.end_char,
+                        'confidence': 1.0  # spaCy doesn't provide confidence
+                    })
+            return pii_entities
+        else:
+            # Transformers approach
+            inputs = self.tokenizer(text, return_tensors="pt", truncation=True, max_length=512)
+            with torch.no_grad():
+                outputs = self.model(**inputs)
+            predictions = torch.nn.functional.softmax(outputs.logits, dim=-1)
+            # Process predictions to extract entities
+            return self._extract_entities(text, predictions, inputs['input_ids'][0])
+    
+    def scan_dataframe(self, df, text_columns):
+        """Scan entire DataFrame for PII"""
+        pii_inventory = {}
+        for col in text_columns:
+            pii_inventory[col] = []
+            for idx, row in df.iterrows():
+                text = str(row[col])
+                entities = self.detect_pii(text)
+                if entities:
+                    pii_inventory[col].append({
+                        'row_index': idx,
+                        'entities': entities,
+                        'risk_level': self._assess_risk(entities)
+                    })
+        return pii_inventory
+    
+    def _assess_risk(self, entities):
+        """Assess risk level based on detected entities"""
+        high_risk_labels = ['PERSON', 'MONEY']
+        medium_risk_labels = ['ORG', 'GPE']
+        
+        has_high_risk = any(e['label'] in high_risk_labels for e in entities)
+        has_medium_risk = any(e['label'] in medium_risk_labels for e in entities)
+        
+        if has_high_risk:
+            return 'HIGH'
+        elif has_medium_risk:
+            return 'MEDIUM'
+        return 'LOW'
+```
+
+**NER Model Integration**:
+
+```python
+# Integration with data pipeline
+def scan_raw_data_for_pii():
+    """Scan all raw data files for PII"""
+    ner_detector = PII_NER_Detector(model_type='spacy')
+    
+    # Scan entities.csv
+    entities_df = pd.read_csv('data/raw/entities.csv')
+    entities_pii = ner_detector.scan_dataframe(
+        entities_df, 
+        text_columns=['name', 'about_text']
+    )
+    
+    # Scan directors.csv
+    directors_df = pd.read_csv('data/raw/directors.csv')
+    directors_pii = ner_detector.scan_dataframe(
+        directors_df,
+        text_columns=['person_name']
+    )
+    
+    # Create PII inventory
+    pii_inventory = {
+        'entities': entities_pii,
+        'directors': directors_pii,
+        'scan_timestamp': datetime.now().isoformat(),
+        'total_pii_detected': sum(len(v) for v in entities_pii.values()) + 
+                              sum(len(v) for v in directors_pii.values())
+    }
+    
+    # Save inventory
+    with open('data/processed/pii_inventory.json', 'w') as f:
+        json.dump(pii_inventory, f, indent=2)
+    
+    return pii_inventory
+```
+
+**NER-Based PII Detection Flow**:
+
+1. **Text Analysis**: NER model processes all text fields in CSV files
+2. **Entity Extraction**: Identifies person names, organizations, locations, financial terms
+3. **Confidence Scoring**: Assigns confidence scores to detected entities
+4. **Risk Assessment**: Classifies risk level (HIGH, MEDIUM, LOW)
+5. **Inventory Creation**: Creates comprehensive PII inventory
+6. **Automatic Masking**: Uses NER results to guide masking operations
+
+**Detected PII Types**:
+
+| NER Label | PII Category | Examples | Risk Level |
+|-----------|-------------|----------|------------|
+| PERSON | Personal Names | "John Doe", "Budi Santoso" | HIGH |
+| ORG | Organization Names | "PT Bank Mandiri", "Japfa Group" | MEDIUM |
+| GPE | Geographic Locations | "Jakarta", "Surabaya" | MEDIUM |
+| MONEY | Financial Amounts | "$1,000,000", "Rp 500 juta" | HIGH |
+| DATE | Dates | "January 15, 2024" | LOW |
+
+**NER Model Options**:
+
+1. **spaCy NER** (Recommended for production):
+   - Fast and efficient
+   - Pre-trained models available
+   - Easy to customize
+   - Model: `en_core_web_sm` or `en_core_web_lg`
+
+2. **Transformer-based NER** (Higher accuracy):
+   - BERT-based models
+   - Better accuracy for domain-specific text
+   - Models: `dslim/bert-base-NER`, `dbmdz/bert-large-cased-finetuned-conll03-english`
+
+3. **Custom NER Model** (Domain-specific):
+   - Fine-tuned on financial/business text
+   - Better for Indonesian names and companies
+   - Can be trained on labeled PII data
+
+**NER-Guided Masking**:
+
+```python
+# NER-guided masking function
+def ner_guided_masking(text, pii_entities, mask_type='partial'):
+    """Mask PII based on NER detection"""
+    masked_text = text
+    offset = 0
+    
+    # Sort entities by start position (descending) to maintain positions
+    sorted_entities = sorted(pii_entities, key=lambda x: x['start'], reverse=True)
+    
+    for entity in sorted_entities:
+        start = entity['start']
+        end = entity['end']
+        label = entity['label']
+        
+        if label == 'PERSON':
+            # Mask person names completely
+            masked_text = masked_text[:start] + "[PERSON]" + masked_text[end:]
+        elif label == 'ORG':
+            # Partial mask for organizations
+            if mask_type == 'partial':
+                org_name = entity['text']
+                if len(org_name) > 4:
+                    masked = org_name[:2] + "*" * (len(org_name) - 4) + org_name[-2:]
+                else:
+                    masked = "*" * len(org_name)
+                masked_text = masked_text[:start] + masked + masked_text[end:]
+            else:
+                masked_text = masked_text[:start] + "[ORG]" + masked_text[end:]
+        elif label == 'MONEY':
+            # Mask financial amounts
+            masked_text = masked_text[:start] + "[AMOUNT]" + masked_text[end:]
+        elif label == 'GPE':
+            # Generalize locations
+            masked_text = masked_text[:start] + "[LOCATION]" + masked_text[end:]
+    
+    return masked_text
+```
+
 #### Sensitive Data Categories
 
 **PII (Personally Identifiable Information)**:
-- **Customer Names**: Company/entity names in `entities.name`
-- **Director Names**: Personal names in `directors.person_name`
-- **Financial Data**: Revenue, margin, transaction amounts
-- **Location Data**: Precise coordinates (lat/lon) that could identify specific locations
+- **Customer Names**: Company/entity names in `entities.name` (detected by NER as ORG)
+- **Director Names**: Personal names in `directors.person_name` (detected by NER as PERSON)
+- **Financial Data**: Revenue, margin, transaction amounts (detected by NER as MONEY)
+- **Location Data**: Precise coordinates (lat/lon) that could identify specific locations (detected by NER as GPE)
 - **Business Relationships**: Transaction patterns revealing business connections
 
 **Non-Sensitive Data**:
@@ -1029,15 +1240,119 @@ graph TB
 - **Aggregated Patterns**: Transaction patterns without specific amounts
 - **Embeddings**: Numerical vectors (no direct PII)
 
-### Data Masking & Anonymization Strategies
+### NER-Enhanced Data Masking & Anonymization
 
-#### 1. Name Anonymization
+#### Integration with Masking Pipeline
 
-**Strategy**: Replace real names with pseudonyms or tokens
+**NER-Driven Masking Workflow**:
 
 ```python
-# Example: Name Masking Function
-def mask_entity_name(name, mask_type='partial'):
+# Complete NER-based masking pipeline
+def ner_based_data_protection_pipeline():
+    """End-to-end NER-based data protection"""
+    
+    # Step 1: Initialize NER detector
+    ner_detector = PII_NER_Detector(model_type='spacy')
+    
+    # Step 2: Scan all data files
+    print("Scanning data files for PII...")
+    pii_inventory = scan_raw_data_for_pii()
+    
+    # Step 3: Apply NER-guided masking
+    print("Applying NER-guided masking...")
+    
+    # Process entities.csv
+    entities_df = pd.read_csv('data/raw/entities.csv')
+    for col in ['name', 'about_text']:
+        if col in entities_df.columns:
+            for idx, row in entities_df.iterrows():
+                text = str(row[col])
+                entities = ner_detector.detect_pii(text)
+                if entities:
+                    masked_text = ner_guided_masking(text, entities)
+                    entities_df.at[idx, col] = masked_text
+    
+    # Process directors.csv
+    directors_df = pd.read_csv('data/raw/directors.csv')
+    for idx, row in directors_df.iterrows():
+        name = str(row['person_name'])
+        entities = ner_detector.detect_pii(name)
+        if entities:
+            masked_name = ner_guided_masking(name, entities, mask_type='full')
+            directors_df.at[idx, 'person_name'] = masked_name
+    
+    # Step 4: Save masked data
+    entities_df.to_csv('data/raw/entities_masked.csv', index=False)
+    directors_df.to_csv('data/raw/directors_masked.csv', index=False)
+    
+    # Step 5: Generate masking report
+    generate_masking_report(pii_inventory)
+    
+    return pii_inventory
+```
+
+**Real-Time NER Detection**:
+
+```python
+# Real-time PII detection during data ingestion
+@st.cache_resource
+def load_ner_model():
+    """Load NER model for real-time detection"""
+    return PII_NER_Detector(model_type='spacy')
+
+def real_time_pii_detection(text):
+    """Detect PII in real-time during user input"""
+    ner_model = load_ner_model()
+    entities = ner_model.detect_pii(text)
+    
+    if entities:
+        # Alert user about PII detection
+        st.warning(f"⚠️ PII detected: {len(entities)} entities found")
+        for entity in entities:
+            st.write(f"- {entity['label']}: {entity['text']}")
+        
+        # Offer automatic masking
+        if st.button("Auto-mask PII"):
+            return ner_guided_masking(text, entities)
+    
+    return text
+```
+
+### Data Masking & Anonymization Strategies
+
+#### 1. NER-Guided Name Anonymization
+
+**Strategy**: Use NER to identify names, then apply appropriate masking based on entity type
+
+```python
+# NER-enhanced name masking
+def ner_mask_entity_name(name, ner_detector, mask_type='partial'):
+    """Mask entity name using NER detection"""
+    # Detect entities in name
+    entities = ner_detector.detect_pii(name)
+    
+    if not entities:
+        # No PII detected, apply standard masking
+        return mask_entity_name_fallback(name, mask_type)
+    
+    masked_name = name
+    for entity in sorted(entities, key=lambda x: x['start'], reverse=True):
+        if entity['label'] == 'ORG':
+            # Organization name - partial mask
+            org_text = entity['text']
+            if mask_type == 'partial':
+                masked_org = f"{org_text[:2]}***{org_text[-2:]}" if len(org_text) > 4 else "***"
+            else:
+                masked_org = f"ORG_{hash(org_text) % 10000}"
+            masked_name = masked_name[:entity['start']] + masked_org + masked_name[entity['end']:]
+        elif entity['label'] == 'PERSON':
+            # Person name - full mask
+            masked_name = masked_name[:entity['start']] + "[PERSON]" + masked_name[entity['end']:]
+    
+    return masked_name
+
+def mask_entity_name_fallback(name, mask_type='partial'):
+    """Fallback masking when NER doesn't detect entities"""
     if mask_type == 'full':
         # Full anonymization: "Entity_12345"
         return f"Entity_{hash(name) % 100000}"
@@ -1456,10 +1771,71 @@ privacy:
     director_name_method: "hash"  # hash, initials, remove
     financial_data_method: "bucket"  # bucket, differential_privacy, rounding
     location_precision: "city"  # city, region, country
+  
+  ner:
+    enabled: true
+    model_type: "spacy"  # spacy, transformers
+    model_name: "en_core_web_sm"  # or "dslim/bert-base-NER" for transformers
+    auto_detect_pii: true
+    confidence_threshold: 0.7
+    scan_on_ingestion: true
+    real_time_detection: true
+    pii_labels:
+      - PERSON
+      - ORG
+      - GPE
+      - MONEY
+      - DATE
 ```
+
+### NER Model Deployment
+
+#### Installation & Setup
+
+```bash
+# Install spaCy and model
+pip install spacy
+python -m spacy download en_core_web_sm
+
+# Or for transformer-based NER
+pip install transformers torch
+```
+
+#### Model Configuration
+
+```yaml
+# config.yaml addition
+ner:
+  model_type: "spacy"  # Options: spacy, transformers
+  model_name: "en_core_web_sm"
+  pii_labels:
+    - PERSON
+    - ORG
+    - GPE
+    - MONEY
+    - DATE
+  confidence_threshold: 0.7
+  batch_size: 32
+  max_text_length: 512
+```
+
+#### Performance Metrics
+
+| Model Type | Accuracy | Speed | Memory | Use Case |
+|------------|----------|-------|--------|----------|
+| spaCy (sm) | ~85% | Fast | Low | Production, real-time |
+| spaCy (lg) | ~90% | Medium | Medium | Higher accuracy needed |
+| BERT-based | ~95% | Slow | High | Maximum accuracy |
 
 ### Implementation Checklist
 
+- [ ] Install and configure NER model (spaCy or Transformers)
+- [ ] Implement NER-based PII detection pipeline
+- [ ] Create PII inventory system
+- [ ] Integrate NER with data masking module
+- [ ] Implement NER-guided masking functions
+- [ ] Set up real-time PII detection in UI
+- [ ] Create PII scanning reports
 - [ ] Implement data classification for PII identification
 - [ ] Deploy encryption at rest for all data storage
 - [ ] Implement encryption in transit (HTTPS/TLS)
