@@ -637,6 +637,235 @@ Evaluation script: `src/eval/report_metrics.py`
 
 ---
 
+## Relationship Parameters for Account Anchors
+
+This section documents all possible parameters that can be identified and used to detect relationships across account anchors (central entities like corporate HQs, major subsidiaries, or hub organizations in business ecosystems).
+
+### Currently Used Parameters (7 Core Features)
+
+The XGBoost re-ranker currently uses these 7 parameters to identify relationships:
+
+| Parameter | Type | Description | Data Source |
+|-----------|------|-------------|-------------|
+| **cos_sim** | Continuous (0-1) | Cosine similarity of fused embeddings (text + transaction + graph) | `Z.npy` embeddings |
+| **jacc_ctp** | Continuous (0-1) | Jaccard index of shared counterparties | `transactions.csv` |
+| **geo_km** | Continuous (km) | Haversine distance between entity coordinates | `entities.csv` (lat, lon) |
+| **ind_match** | Binary (0/1) | Industry code match between entities | `entities.csv` (industry_code) |
+| **dir_overlap** | Integer (count) | Number of shared directors/executives | `directors.csv` |
+| **diff_mean** | Continuous | Mean absolute difference of embedding vectors | `Z.npy` embeddings |
+| **had_mean** | Continuous | Mean Hadamard product (element-wise multiplication) of embeddings | `Z.npy` embeddings |
+
+### Additional Parameters from Existing Data Sources
+
+The following parameters are available in the data but not currently used in the re-ranker:
+
+#### Financial Similarity Parameters
+
+| Parameter | Type | Description | Calculation Method |
+|-----------|------|-------------|-------------------|
+| **revenue_ratio** | Continuous | Ratio of smaller to larger revenue | `min(revenue_A, revenue_B) / max(revenue_A, revenue_B)` |
+| **revenue_diff** | Continuous | Absolute difference in revenue | `|revenue_A - revenue_B|` |
+| **revenue_log_diff** | Continuous | Log-scale difference (handles wide scales) | `|log(revenue_A + 1) - log(revenue_B + 1)|` |
+| **margin_similarity** | Continuous (0-1) | Similarity of profit margins | `1 - |margin_A - margin_B|` |
+| **utilization_similarity** | Continuous (0-1) | Similarity of utilization rates | `1 - |utilization_A - utilization_B|` |
+| **delinq_match** | Binary (0/1) | Both entities have delinquency flags | `(delinq_flag_A == 1) AND (delinq_flag_B == 1)` |
+| **financial_health_match** | Binary (0/1) | Both entities have similar financial profiles | Combination of margin/utilization similarity thresholds |
+
+**Data Source**: `financials.csv` (revenue, margin, utilization, delinq_flag)
+
+#### Supplier Network Parameters
+
+| Parameter | Type | Description | Calculation Method |
+|-----------|------|-------------|-------------------|
+| **supplier_overlap** | Integer (count) | Number of shared suppliers | `|suppliers_A ∩ suppliers_B|` |
+| **supplier_jaccard** | Continuous (0-1) | Jaccard index of supplier sets | `|suppliers_A ∩ suppliers_B| / |suppliers_A ∪ suppliers_B|` |
+| **buyer_overlap** | Integer (count) | Number of shared buyers (reverse supplier) | Count of entities that buy from both |
+| **direct_supplier_link** | Binary (0/1) | Direct supplier-buyer relationship exists | `(A supplies B) OR (B supplies A)` |
+| **supply_chain_distance** | Integer (hops) | Shortest path in supplier graph | Graph traversal distance |
+| **common_supplier_ratio** | Continuous (0-1) | Percentage of suppliers in common | Normalized overlap metric |
+
+**Data Source**: `suppliers.csv` (buyer_entity_id, supplier_entity_id)
+
+#### Transaction Pattern Parameters
+
+| Parameter | Type | Description | Calculation Method |
+|-----------|------|-------------|-------------------|
+| **txn_amount_ratio** | Continuous | Ratio of transaction volumes | Compare total transaction amounts |
+| **txn_category_overlap** | Continuous (0-1) | Jaccard index of transaction categories | `|categories_A ∩ categories_B| / |categories_A ∪ categories_B|` |
+| **txn_frequency_similarity** | Continuous (0-1) | Similarity in transaction frequency patterns | Compare monthly transaction counts |
+| **seasonality_correlation** | Continuous (-1 to 1) | Correlation of seasonal patterns | Pearson correlation of monthly patterns |
+| **avg_txn_amount_similarity** | Continuous (0-1) | Similarity in average transaction amounts | `1 - |mean_amount_A - mean_amount_B| / max(mean_amount_A, mean_amount_B)` |
+| **txn_category_diversity_match** | Continuous (0-1) | Similarity in category diversity | Compare entropy/distribution of categories |
+| **direct_txn_exists** | Binary (0/1) | Direct transactions between entities exist | `(A → B) OR (B → A)` |
+| **txn_volume_total** | Continuous | Total transaction volume between entities | Sum of all A↔B transactions |
+
+**Data Source**: `transactions.csv` (src_entity_id, dst_entity_id, amount, category, yyyymm)
+
+#### Geographic and Demographics Parameters
+
+| Parameter | Type | Description | Calculation Method |
+|-----------|------|-------------|-------------------|
+| **region_match** | Binary (0/1) | Same region/province/city | Extract from coordinates or entity metadata |
+| **timezone_match** | Binary (0/1) | Same timezone | Derived from longitude |
+| **geo_cluster** | Binary (0/1) | Within geographic cluster threshold | Density-based clustering |
+| **customer_status_match** | Binary (0/1) | Both ETB or both NTB | `is_customer_A == is_customer_B` |
+
+**Data Source**: `entities.csv` (lat, lon, is_customer)
+
+#### Network Structure Parameters
+
+| Parameter | Type | Description | Calculation Method |
+|-----------|------|-------------|-------------------|
+| **common_neighbors** | Integer (count) | Number of shared neighbors in transaction graph | Count entities connected to both |
+| **adamic_adar_score** | Continuous | Weighted common neighbors score | Graph-based similarity metric |
+| **preferential_attachment** | Continuous | Product of neighbor counts | `|neighbors_A| × |neighbors_B|` |
+| **transitive_triangles** | Integer (count) | Number of triangles in graph (A→C, B→C, A↔B) | Graph motif counting |
+
+**Data Source**: `transactions.csv` + `suppliers.csv` (graph structure)
+
+### Derived/Computed Parameters
+
+These parameters can be computed from existing data but require additional feature engineering:
+
+#### Temporal Pattern Parameters
+
+| Parameter | Type | Description | Calculation Method |
+|-----------|------|-------------|-------------------|
+| **relationship_age** | Continuous (months) | Duration of relationship (if direct transactions exist) | `max(date) - min(date)` from transactions |
+| **txn_trend_correlation** | Continuous (-1 to 1) | Correlation of transaction trends over time | Time series correlation |
+| **relationship_stability** | Continuous (0-1) | Consistency of transactions over time | Coefficient of variation of monthly counts |
+| **recent_txn_flag** | Binary (0/1) | Transactions in last N months | Recent activity indicator |
+
+#### Business Model Similarity Parameters
+
+| Parameter | Type | Description | Calculation Method |
+|-----------|------|-------------|-------------------|
+| **text_similarity** | Continuous (0-1) | Cosine similarity of text embeddings only | `text_embed_A · text_embed_B` |
+| **txn_embed_similarity** | Continuous (0-1) | Cosine similarity of transaction embeddings only | Transaction pattern similarity |
+| **graph_embed_similarity** | Continuous (0-1) | Cosine similarity of graph embeddings only | Graph structure similarity |
+| **business_model_match** | Continuous (0-1) | Composite score of business characteristics | Weighted combination of embeddings |
+
+**Data Source**: `data/processed/text_embed.npy`, `txn_embed.npy`, `graph_embed.npy`
+
+#### Hierarchical Relationship Parameters (Anchor-Specific)
+
+| Parameter | Type | Description | Calculation Method |
+|-----------|------|-------------|-------------------|
+| **ancestor_descendant** | Binary (0/1) | One entity is ancestor/descendant via supplier chain | Path traversal in supplier graph |
+| **sibling_entities** | Binary (0/1) | Entities share common supplier/buyer (siblings in supply chain) | Common parent in supplier tree |
+| **ecosystem_distance** | Integer (hops) | Distance in business ecosystem graph | Shortest path in combined graph |
+| **hub_centrality_diff** | Continuous | Difference in network centrality (PageRank, betweenness) | Centrality metric comparison |
+| **anchor_proximity** | Continuous (0-1) | Distance to nearest anchor entity | For non-anchors, distance to ecosystem hub |
+
+**Use Case**: Identifying relationships within corporate groups or business ecosystems
+
+### Relationship Types Identifiable Across Account Anchors
+
+Based on the available parameters, the following relationship types can be identified:
+
+#### 1. **Corporate Relationships**
+- **Parent-Subsidiary**: Shared directors + supplier links + high embedding similarity
+- **Sibling Companies**: Common parent in supplier graph + shared directors
+- **Holding Structure**: Network centrality + director overlap + transaction patterns
+
+**Key Parameters**: `dir_overlap`, `supplier_chain_distance`, `ecosystem_distance`
+
+#### 2. **Supply Chain Relationships**
+- **Supplier-Buyer**: Direct supplier links or transaction patterns
+- **Supply Chain Partners**: Shared suppliers/buyers + geographic proximity
+- **Competitors**: Same industry + similar transaction patterns + geographic overlap
+
+**Key Parameters**: `direct_supplier_link`, `supplier_jaccard`, `ind_match`, `txn_category_overlap`
+
+#### 3. **Business Ecosystem Relationships**
+- **Ecosystem Partners**: Shared counterparties + similar transaction categories
+- **Co-Customers**: Entities that transact with same counterparties
+- **Value Chain Participants**: Sequential transactions (A→B→C patterns)
+
+**Key Parameters**: `jacc_ctp`, `common_neighbors`, `txn_category_overlap`, `supply_chain_distance`
+
+#### 4. **Financial Relationships**
+- **Similar Financial Profile**: Comparable revenue/margin/utilization
+- **Risk Correlated**: Both have delinquency flags or similar risk patterns
+- **Growth Pattern Match**: Similar revenue trends over time
+
+**Key Parameters**: `revenue_ratio`, `margin_similarity`, `delinq_match`, `txn_trend_correlation`
+
+#### 5. **Geographic Relationships**
+- **Regional Partners**: Same region + industry match + transaction patterns
+- **Local Ecosystem**: Geographic clustering + shared counterparties
+- **Market Participants**: Same geographic market + similar business models
+
+**Key Parameters**: `geo_km`, `region_match`, `ind_match`, `jacc_ctp`
+
+#### 6. **Behavioral Relationships**
+- **Transaction Pattern Match**: Similar seasonality, frequency, category mix
+- **Business Model Similarity**: Similar text descriptions + transaction patterns
+- **Operational Alignment**: Similar utilization rates + transaction behaviors
+
+**Key Parameters**: `seasonality_correlation`, `text_similarity`, `txn_frequency_similarity`, `utilization_similarity`
+
+### Implementation Recommendations
+
+To leverage these additional parameters:
+
+1. **Immediate Addition (Low Effort, High Impact)**:
+   - Add `direct_supplier_link` (binary flag if direct supplier relationship exists)
+   - Add `customer_status_match` (both ETB or both NTB)
+   - Add `revenue_ratio` (financial size similarity)
+
+2. **Medium Priority (Moderate Effort)**:
+   - Compute `supplier_jaccard` for supplier network overlap
+   - Add `txn_category_overlap` for transaction pattern matching
+   - Implement `seasonality_correlation` for temporal pattern matching
+
+3. **Advanced Features (Higher Effort)**:
+   - Graph-based metrics (`adamic_adar_score`, `ecosystem_distance`)
+   - Time-series features (`relationship_age`, `txn_trend_correlation`)
+   - Financial similarity composite scores
+
+4. **Anchor-Specific Features**:
+   - Identify anchor entities (high network centrality, multiple subsidiaries)
+   - Compute `anchor_proximity` for non-anchor entities
+   - Detect hierarchical relationships (parent-subsidiary-sibling patterns)
+
+### Feature Engineering Code Example
+
+To add new parameters to `build_pair_features()`:
+
+```python
+# Financial similarity
+if 'financials' in available_data:
+    rev_a = get_latest_revenue(a_eid)
+    rev_b = get_latest_revenue(b_eid)
+    revenue_ratio = min(rev_a, rev_b) / max(rev_a, rev_b) if max(rev_a, rev_b) > 0 else 0
+    margin_sim = 1 - abs(margin_a - margin_b)
+
+# Supplier network
+suppliers_a = get_suppliers(a_eid)
+suppliers_b = get_suppliers(b_eid)
+supplier_jaccard = len(suppliers_a & suppliers_b) / len(suppliers_a | suppliers_b) if (suppliers_a or suppliers_b) else 0
+direct_supplier_link = (a_eid in suppliers_b) or (b_eid in suppliers_a)
+
+# Transaction patterns
+txn_cats_a = set(get_transaction_categories(a_eid))
+txn_cats_b = set(get_transaction_categories(b_eid))
+txn_category_overlap = len(txn_cats_a & txn_cats_b) / len(txn_cats_a | txn_cats_b) if (txn_cats_a or txn_cats_b) else 0
+
+# Add to feature vector
+features.extend([revenue_ratio, margin_sim, supplier_jaccard, direct_supplier_link, txn_category_overlap])
+```
+
+### Summary
+
+**Currently Used**: 7 parameters  
+**Available but Unused**: 25+ parameters  
+**Derivable**: 15+ additional parameters  
+
+Total potential parameters: **47+ relationship parameters** can be identified across account anchors, spanning financial, network, geographic, temporal, and behavioral dimensions.
+
+---
+
 ## Future Enhancements
 
 ### Model Improvements
